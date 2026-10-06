@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bennet Jump</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;display:grid;place-items:center;font-family:Arial,sans-serif}
+  canvas{background:#8fd3ff;max-width:100%;max-height:100vh;border:4px solid #222;image-rendering:pixelated}
+  #hint{position:fixed;bottom:8px;color:#fff;font-size:14px;text-align:center;width:100%}
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="540"></canvas>
+<div id="hint">← → / A D = laufen · Leertaste = springen · R = Neustart</div>
+<script>
+const c=document.getElementById("game"),ctx=c.getContext("2d");
+const keys={};
+addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=true;if(e.code==="Space")keys.space=true;if(e.key.toLowerCase()==="r")reset();});
+addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=false;if(e.code==="Space")keys.space=false;});
+
+const platforms=[
+{x:0,y:470,w:960,h:70},{x:150,y:390,w:150,h:22},{x:380,y:330,w:150,h:22},
+{x:610,y:390,w:130,h:22},{x:780,y:300,w:130,h:22},{x:870,y:220,w:90,h:22}
+];
+const coins=[{x:210,y:350},{x:440,y:290},{x:660,y:350},{x:820,y:260},{x:910,y:180}];
+const enemyStart=[{x:520,y:294,vx:1.5},{x:700,y:354,vx:1.2}];
+let p,enemies,score,won;
+
+function reset(){
+ p={x:60,y:420,w:34,h:46,vx:0,vy:0,on:false,lives:3};
+ enemies=enemyStart.map(e=>({...e,w:30,h:30}));
+ score=0;won=false;
+}
+reset();
+
+function rectHit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function update(){
+ if(won)return;
+ p.vx=0;
+ if(keys.arrowleft||keys.a)p.vx=-4;
+ if(keys.arrowright||keys.d)p.vx=4;
+ if((keys.space||keys.arrowup||keys.w)&&p.on){p.vy=-11;p.on=false}
+ p.vy+=.55;
+ p.x+=p.vx;
+ for(const q of platforms){
+   if(p.vy>=0 && p.x+p.w>q.x && p.x<q.x+q.w && p.y+p.h<=q.y && p.y+p.h+p.vy>=q.y){
+     p.y=q.y-p.h;p.vy=0;p.on=true;
+   }
+ }
+ p.y+=p.vy;
+ if(p.x<0)p.x=0;if(p.x+p.w>c.width)p.x=c.width-p.w;
+ if(p.y>c.height+40){p.lives--; if(p.lives<=0)reset(); else {p.x=60;p.y=420;p.vy=0;}}
+ for(const e of enemies){
+   e.x+=e.vx;
+   if(e.x<480||e.x>900)e.vx*=-1;
+   if(rectHit(p,e)){p.lives--; if(p.lives<=0)reset(); else {p.x=60;p.y=420;p.vy=0;}}
+ }
+ for(let i=coins.length-1;i>=0;i--)if(rectHit(p,{x:coins[i].x-10,y:coins[i].y-10,w:20,h:20})){coins.splice(i,1);score++}
+ if(p.x>910&&p.y<260)won=true;
+}
+function draw(){
+ ctx.clearRect(0,0,c.width,c.height);
+ // Himmel
+ ctx.fillStyle="#8fd3ff";ctx.fillRect(0,0,c.width,c.height);
+ // Wolken
+ ctx.fillStyle="#fff";
+ [[100,80],[420,110],[700,65]].forEach(([x,y])=>{ctx.beginPath();ctx.arc(x,y,25,0,7);ctx.arc(x+30,y,32,0,7);ctx.arc(x+65,y,22,0,7);ctx.fill()});
+ // Plattformen
+ for(const q of platforms){ctx.fillStyle="#6b3f22";ctx.fillRect(q.x,q.y,q.w,q.h);ctx.fillStyle="#42a83f";ctx.fillRect(q.x,q.y,q.w,7)}
+ // Ziel
+ ctx.fillStyle="#333";ctx.fillRect(920,150,5,70);ctx.fillStyle="#ffd400";ctx.beginPath();ctx.moveTo(925,150);ctx.lineTo(960,162);ctx.lineTo(925,174);ctx.fill();
+ // Münzen
+ for(const m of coins){ctx.fillStyle="#ffd21a";ctx.beginPath();ctx.arc(m.x,m.y,10,0,7);ctx.fill();ctx.fillStyle="#fff2a0";ctx.fillRect(m.x-2,m.y-7,4,14)}
+ // Gegner
+ for(const e of enemies){ctx.fillStyle="#d52b2b";ctx.fillRect(e.x,e.y,e.w,e.h);ctx.fillStyle="#fff";ctx.fillRect(e.x+6,e.y+7,6,6);ctx.fillRect(e.x+19,e.y+7,6,6)}
+ // Bennet
+ ctx.fillStyle="#111";ctx.fillRect(p.x+4,p.y,p.w-8,12); // Haare
+ ctx.fillStyle="#f1c7a5";ctx.fillRect(p.x+5,p.y+10,p.w-10,14);
+ ctx.fillStyle="#ffd21a";ctx.fillRect(p.x,p.y+24,p.w,18); // Trikot
+ ctx.fillStyle="#111";ctx.fillRect(p.x+6,p.y+42,8,4);ctx.fillRect(p.x+21,p.y+42,8,4);
+ // UI
+ ctx.fillStyle="#111";ctx.font="bold 22px Arial";ctx.fillText("BENNET JUMP",20,32);
+ ctx.font="18px Arial";ctx.fillText("Münzen: "+score,20,58);ctx.fillText("Leben: "+"❤️".repeat(p.lives),20,84);
+ if(won){ctx.fillStyle="rgba(0,0,0,.65)";ctx.fillRect(0,0,c.width,c.height);ctx.fillStyle="#fff";ctx.textAlign="center";ctx.font="bold 54px Arial";ctx.fillText("LEVEL GESCHAFFT! 🎉",480,240);ctx.font="24px Arial";ctx.fillText("Drücke R für einen Neustart",480,285);ctx.textAlign="left";}
+}
+function loop(){update();draw();requestAnimationFrame(loop)} loop();
+</script>
+</body>
+</html>
