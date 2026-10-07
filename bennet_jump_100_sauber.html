@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Bennet Jump</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#87ceeb;font-family:Arial}
+canvas{display:block;width:100%;height:100%}
+#hud{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;color:white;font-weight:bold;font-size:18px;text-shadow:0 2px 3px #000;pointer-events:none}
+#controls{position:fixed;bottom:15px;left:15px;right:15px;display:flex;justify-content:space-between}
+button{width:65px;height:65px;border:0;border-radius:18px;background:#111c;color:white;font-size:28px}
+#screen{display:none;position:fixed;inset:0;background:#000b;color:white;align-items:center;justify-content:center;text-align:center}
+.box{background:#181818;padding:25px;border-radius:20px}
+.box h1{color:#ffd400}
+.box button{width:auto;padding:0 22px;background:#ffd400;color:#111;font-size:18px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><span id="lv"></span><span id="coin"></span><span id="life"></span></div>
+<div id="controls"><div><button id="l">◀</button><button id="r">▶</button></div><div><button id="j">⬆</button><button id="re">↻</button></div></div>
+<div id="screen"><div class="box"><h1 id="st"></h1><p id="tx"></p><button id="go">Weiter</button></div></div>
+<script>
+const c=document.getElementById("c"),x=c.getContext("2d");
+let W,H,level=+localStorage.bennetLevel||1,lives,cam,player,plats,enemies,flag,keys={l:0,r:0},paused=0;
+function size(){W=c.width=innerWidth;H=c.height=innerHeight}addEventListener("resize",size);size();
+function build(){
+ lives=3;cam=0;plats=[];enemies=[];paused=0;
+ let px=0,py=H-120;
+ plats.push({x:px,y:py,w:270,h:24});
+ let d=level<=10?0:level<=30?1:level<=60?2:3;
+ let count=18+Math.floor(level/12);
+ for(let i=1;i<count;i++){
+  let gap=50+d*4+(i*7+level)%16;
+  px+=plats[i-1].w+gap;
+  py+=((i*5+level)%3-1)*(d?22:16);
+  py=Math.max(150,Math.min(H-100,py));
+  let w=205-d*16+(i*11+level)%30;
+  plats.push({x:px,y:py,w:w,h:24});
+  if(i>2&&i%4===0&&d>0) enemies.push({x:px+w/2-18,y:py-28,w:36,h:28,min:px+8,max:px+w-44,v:1});
+ }
+ let last=plats[plats.length-1];
+ flag={x:last.x+last.w-25,y:last.y-72};
+ player={x:45,y:H-190,w:34,h:48,vx:0,vy:0,on:0};
+}
+function msg(title,text,button,fn){
+ document.getElementById("st").textContent=title;
+ document.getElementById("tx").textContent=text;
+ document.getElementById("go").textContent=button;
+ document.getElementById("screen").style.display="flex";
+ document.getElementById("go").onclick=fn||(()=>{document.getElementById("screen").style.display="none";build()});
+}
+function die(){
+ lives--;
+ if(lives<=0)msg("Game Over","Versuch es noch einmal!","Nochmal",()=>{level=level;document.getElementById("screen").style.display="none";build()});
+ else {player.x=45;player.y=H-190;player.vx=0;player.vy=0}
+}
+function jump(){if(player.on&&!paused){player.vy=-12;player.on=0}}
+function update(){
+ if(paused)return;
+ let old=player.y;
+ player.vx=(keys.l?-4:0)+(keys.r?4:0);
+ player.vy+=.55;player.x+=player.vx;player.y+=player.vy;player.on=0;
+ if(player.x<0)player.x=0;
+ for(const p of plats)if(player.x+player.w>p.x&&player.x<p.x+p.w&&old+player.h<=p.y&&player.y+player.h>=p.y&&player.vy>=0){player.y=p.y-player.h;player.vy=0;player.on=1}
+ for(const e of enemies){
+  e.x+=e.v;if(e.x<e.min||e.x>e.max)e.v*=-1;
+  if(player.x<e.x+e.w&&player.x+player.w>e.x&&player.y<e.y+e.h&&player.y+player.h>e.y)die();
+ }
+ if(player.y>H+100)die();
+ if(player.x+player.w>flag.x&&player.x<flag.x+45&&player.y<flag.y+80){
+  if(level>=100)msg("🏆 Geschafft!","Du hast alle 100 Level geschafft!","Von vorne",()=>{level=1;localStorage.bennetLevel=1;document.getElementById("screen").style.display="none";build()});
+  else{level++;localStorage.bennetLevel=level;build()}
+ }
+ cam=Math.max(0,player.x-W*.35);
+ document.getElementById("lv").textContent="Level "+level+"/100";
+ document.getElementById("coin").textContent="🪙 0";
+ document.getElementById("life").textContent="❤️ "+lives;
+}
+function draw(){
+ x.clearRect(0,0,W,H);
+ x.fillStyle="#fff9";for(let i=0;i<6;i++){let q=((i*250-cam*.2)%(W+300))-100;x.beginPath();x.arc(q,80+i%3*50,30,0,7);x.arc(q+35,75+i%3*50,40,0,7);x.arc(q+75,88+i%3*50,28,0,7);x.fill()}
+ x.save();x.translate(-cam,0);
+ for(const p of plats){x.fillStyle="#79512f";x.fillRect(p.x,p.y,p.w,p.h);x.fillStyle="#42a83f";x.fillRect(p.x,p.y,p.w,7)}
+ for(const e of enemies){x.fillStyle="#d22";x.fillRect(e.x,e.y,e.w,e.h);x.fillStyle="#fff";x.fillRect(e.x+7,e.y+6,7,7);x.fillRect(e.x+22,e.y+6,7,7)}
+ x.fillStyle="#ffd400";x.fillRect(flag.x,flag.y,7,72);x.beginPath();x.moveTo(flag.x+7,flag.y);x.lineTo(flag.x+45,flag.y+14);x.lineTo(flag.x+7,flag.y+28);x.fill();
+ x.fillStyle="#111";x.fillRect(player.x,player.y,player.w,player.h);x.fillStyle="#ffd400";x.fillRect(player.x+4,player.y+7,26,12);x.fillStyle="#fff";x.fillRect(player.x+7,player.y+28,7,7);x.fillRect(player.x+21,player.y+28,7,7);
+ x.restore();
+}
+function loop(){update();draw();requestAnimationFrame(loop)}build();loop();
+addEventListener("keydown",e=>{let k=e.key.toLowerCase();if(e.key=="ArrowLeft"||k=="a")keys.l=1;if(e.key=="ArrowRight"||k=="d")keys.r=1;if(e.key=="ArrowUp"||k=="w"||e.code=="Space"){e.preventDefault();jump()}if(k=="r")build()});
+addEventListener("keyup",e=>{let k=e.key.toLowerCase();if(e.key=="ArrowLeft"||k=="a")keys.l=0;if(e.key=="ArrowRight"||k=="d")keys.r=0});
+function hold(id,key){let b=document.getElementById(id);b.onpointerdown=e=>{e.preventDefault();keys[key]=1};b.onpointerup=b.onpointercancel=b.onpointerleave=e=>{keys[key]=0}}
+hold("l","l");hold("r","r");document.getElementById("j").onpointerdown=e=>{e.preventDefault();jump()};document.getElementById("re").onpointerdown=e=>{e.preventDefault();build()};
+</script>
+</body>
+</html>
