@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Bennet Jump – 200 Level</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#101827;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;touch-action:none}
+#game{display:block;width:100vw;height:100dvh;background:#8ed8ff}
+#hud{position:fixed;top:10px;left:10px;right:10px;display:flex;gap:8px;align-items:center;justify-content:space-between;pointer-events:none;flex-wrap:wrap}
+.pill{background:#101827e8;color:white;border:2px solid #ffffff50;border-radius:12px;padding:7px 11px;font-weight:800;font-size:14px;text-shadow:0 1px #000}
+#bossWrap{position:fixed;top:64px;left:50%;transform:translateX(-50%);width:min(330px,70vw);display:none;text-align:center;color:white;font-weight:900;text-shadow:0 2px 3px #000}
+#bossOuter{height:15px;border:2px solid white;background:#421b28;border-radius:10px;overflow:hidden;box-shadow:0 2px 6px #0008}
+#bossBar{height:100%;width:100%;background:linear-gradient(90deg,#ff3b55,#ff9a45);transition:width .12s}
+#controls{position:fixed;left:0;right:0;bottom:14px;display:flex;justify-content:space-between;align-items:end;padding:0 16px;pointer-events:none}
+.group{display:flex;gap:12px;pointer-events:auto}
+.ctrl{width:66px;height:62px;border:2px solid #ffffffa0;border-radius:17px;background:#101827b8;color:#fff;font-size:27px;font-weight:900;box-shadow:0 4px 0 #0005;touch-action:none;user-select:none;-webkit-user-select:none}
+.ctrl:active{transform:translateY(3px);box-shadow:0 1px 0 #0005;background:#283c5b}
+#jump{width:82px;height:72px;background:#f2c230;color:#172033;border-color:#fff;font-size:16px}
+#overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#08101dcc;padding:20px}
+.panel{width:min(440px,100%);padding:24px 20px;border-radius:22px;background:#17243a;border:2px solid #ffffff4a;color:white;text-align:center;box-shadow:0 18px 60px #0008}
+.panel h1{margin:0 0 8px;font-size:28px}.panel p{line-height:1.45;color:#e2eafa}
+.action{border:0;border-radius:12px;background:#f2c230;color:#172033;font-weight:900;font-size:17px;padding:12px 22px;margin-top:8px}
+.small{font-size:12px;opacity:.8;margin-top:12px}
+@media(min-width:850px){.ctrl{width:74px;height:68px}#jump{width:92px;height:78px}}
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Bennet Jump Spiel"></canvas>
+<div id="hud">
+  <div class="pill">🟡 BENNET JUMP</div>
+  <div class="pill" id="levelText">Level 1 / 200</div>
+  <div class="pill" id="lifeText">❤️❤️❤️</div>
+</div>
+<div id="bossWrap"><div id="bossName">JENDRIK</div><div id="bossOuter"><div id="bossBar"></div></div><div id="bossHP">5 Treffer nötig</div></div>
+<div id="controls">
+  <div class="group"><button class="ctrl" id="left" aria-label="Links">◀</button><button class="ctrl" id="right" aria-label="Rechts">▶</button></div>
+  <div class="group"><button class="ctrl" id="jump" aria-label="Springen">SPRINGEN ⤴</button></div>
+</div>
+<div id="overlay">
+ <div class="panel">
+  <h1>BENNET JUMP</h1>
+  <p>Springe über Plattformen, weiche Stacheln aus und besiege Gegner von oben. Ab Level 10 gibt es Trampoline. Besiege Jendrik in Level 50, 100, 150 und 200!</p>
+  <p><b>Steuerung:</b> ◀ ▶ bewegen · SPRINGEN zum Hüpfen<br>Am Computer gehen auch A/D oder Pfeiltasten und Leertaste.</p>
+  <button class="action" id="start">SPIEL STARTEN</button>
+  <div class="small">Dein Fortschritt bleibt auf diesem Gerät gespeichert.</div>
+ </div>
+</div>
+<script>
+(() => {
+'use strict';
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const levelText=document.getElementById('levelText'),lifeText=document.getElementById('lifeText');
+const bossWrap=document.getElementById('bossWrap'),bossBar=document.getElementById('bossBar'),bossHP=document.getElementById('bossHP');
+const overlay=document.getElementById('overlay'),startBtn=document.getElementById('start');
+let W=0,H=0,dpr=1;
+function resize(){dpr=Math.min(window.devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.floor(W*dpr);canvas.height=Math.floor(H*dpr);ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+const saved=Number(localStorage.getItem('bennetJumpLevel')||1);
+let level=Math.max(1,Math.min(200,saved)),lives=3,playing=false,won=false,camX=0,camY=0,keys={left:false,right:false,jump:false};
+let player,platforms,enemies,spikes,tramps,flag,boss,worldW,groundY,particles=[];
+const bossLevels=[50,100,150,200];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function rand(seed){let x=Math.sin(seed*127.1+level*311.7)*43758.5453;return x-Math.floor(x)}
+function makeLevel(){
+ platforms=[];enemies=[];spikes=[];tramps=[];particles=[];boss=null;
+ worldW= Math.max(2100,1500+level*15);groundY=H-76;
+ // Start and goal route: safe first platform, then varied reachable platforms.
+ platforms.push({x:0,y:groundY,w:260,h:90});
+ let x=220,prevY=groundY-75,i=0;
+ while(x<worldW-240){
+   let r=rand(i+1), gap=level<10?75+r*30:75+r*70;
+   let pw=level<8?150+r*65:105+r*95;
+   let vertical=level<11?(-22+r*44):(-85+r*135);
+   let py=clamp(prevY+vertical,H*0.29,groundY-25);
+   // keep platforms within a jumpable range
+   if(py>prevY+70)py=prevY+65;
+   if(py<prevY-120)py=prevY-115;
+   x+=gap;
+   platforms.push({x,y:py,w:pw,h:18});
+   if(level>=10 && i%4===2)tramps.push({x:x+pw*.38,y:py-12,w:34,h:12});
+   if(level>=26 && i%3===1 && x<worldW-350)spikes.push({x:x+pw+12,y:py-22,w:35+rand(i+4)*20,h:22});
+   if(level>=20 && i%3===0 && x<worldW-400)enemies.push({x:x+pw*.48,y:py-30,w:30,h:30,alive:true,vx:(rand(i+7)>.5?1:-1)*(1.1+Math.min(level,100)*.008),min:x+4,max:x+pw-34});
+   prevY=py;x+=pw;i++;
+ }
+ platforms.push({x:worldW-270,y:groundY-65,w:270,h:90});
+ flag={x:worldW-105,y:groundY-145,w:24,h:80};
+ if(bossLevels.includes(level)){
+   boss={x:worldW-650,y:groundY-130,w:82,h:90,hp:5,maxHp:5,vx:2.0+level/200,min:worldW-900,max:worldW-390,alive:true,hitCooldown:0};
+   platforms.push({x:worldW-950,y:groundY-36,w:730,h:20});
+   boss.y=groundY-126;
+ }
+ player={x:50,y:groundY-125,w:34,h:46,vx:0,vy:0,onGround:false,invuln:0,face:1};
+ camX=0;camY=0;won=false;
+ updateHUD();
+}
+function updateHUD(){levelText.textContent=`Level ${level} / 200`;lifeText.textContent='❤️'.repeat(lives)+'🖤'.repeat(3-lives);if(boss&&boss.alive){bossWrap.style.display='block';bossBar.style.width=(boss.hp/boss.maxHp*100)+'%';bossHP.textContent=`${boss.hp} von ${boss.maxHp} Treffern`;}else bossWrap.style.display='none';}
+function showMessage(title,msg,button='WEITER',callback=null){overlay.style.display='flex';overlay.querySelector('h1').textContent=title;overlay.querySelector('p').innerHTML=msg;startBtn.textContent=button;startBtn.onclick=callback||(()=>{overlay.style.display='none';playing=true;lastTime=performance.now();requestAnimationFrame(loop)});}
+function begin(){overlay.style.display='none';playing=true;makeLevel();lastTime=performance.now();requestAnimationFrame(loop)}
+startBtn.onclick=begin;
+function nextLevel(){if(level>=200){playing=false;localStorage.setItem('bennetJumpLevel','1');level=1;showMessage('DU HAST GEWONNEN!','Du hast alle <b>200 Level</b> geschafft und Jendrik besiegt. Stark!','NOCHMAL SPIELEN',()=>{lives=3;begin()});return;}level++;localStorage.setItem('bennetJumpLevel',String(level));makeLevel();}
+function hurt(){if(player.invuln>0)return;lives--;player.invuln=1.25;if(lives<=0){lives=3;makeLevel();player.x=50;player.y=groundY-130;player.vy=0;}else{player.x=Math.max(25,player.x-110);player.y=Math.max(groundY-180,player.y-45);player.vx=0;player.vy=-4;}updateHUD();}
+function overlap(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function jump(){if(!playing)return;if(player.onGround){player.vy=-12.2;player.onGround=false;}else if(player.jumps<1){player.vy=-11;player.jumps=1;}}
+function bindHold(id,key){const el=document.getElementById(id);const down=e=>{e.preventDefault();keys[key]=true;if(key==='jump')jump()};const up=e=>{e.preventDefault();keys[key]=false};el.addEventListener('pointerdown',down);for(const ev of ['pointerup','pointercancel','pointerleave'])el.addEventListener(ev,up);}
+bindHold('left','left');bindHold('right','right');bindHold('jump','jump');
+addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp',' ','a','d','A','D','w','W'].includes(e.key))e.preventDefault();if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A')keys.left=true;if(e.key==='ArrowRight'||e.key==='d'||e.key==='D')keys.right=true;if((e.key===' '||e.key==='ArrowUp'||e.key==='w'||e.key==='W')&&!e.repeat)jump();});
+addEventListener('keyup',e=>{if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A')keys.left=false;if(e.key==='ArrowRight'||e.key==='d'||e.key==='D')keys.right=false;});
+let lastTime=0;
+function update(dt){
+ dt=Math.min(dt,.033);
+ if(keys.left){player.vx-=0.8;player.face=-1;}if(keys.right){player.vx+=0.8;player.face=1;}
+ player.vx*=Math.pow(.80,dt*60);player.vx=clamp(player.vx,-5.3-Math.min(level*.004,1.2),5.3+Math.min(level*.004,1.2));
+ const oldY=player.y;player.x+=player.vx;player.x=clamp(player.x,0,worldW-player.w);player.vy+=.62*(dt*60);player.vy=Math.min(player.vy,14);player.y+=player.vy;player.onGround=false;
+ for(const p of platforms){if(player.x+player.w>p.x&&player.x<p.x+p.w&&oldY+player.h<=p.y+8&&player.y+player.h>=p.y&&player.vy>=0){player.y=p.y-player.h;player.vy=0;player.onGround=true;player.jumps=0;}}
+ for(const t of tramps){if(overlap(player,{x:t.x,y:t.y-3,w:t.w,h:t.h+5})&&player.vy>=0&&oldY+player.h<=t.y+8){player.y=t.y-player.h;player.vy=-19;player.onGround=false;}}
+ for(const e of enemies){if(!e.alive)continue;e.x+=e.vx;if(e.x<e.min||e.x>e.max)e.vx*=-1;if(overlap(player,e)){if(player.vy>1&&oldY+player.h<=e.y+12){e.alive=false;player.vy=-9.5;player.y=e.y-player.h;for(let k=0;k<7;k++)particles.push({x:e.x+e.w/2,y:e.y+10,vx:(Math.random()-.5)*5,vy:-Math.random()*5,life:.5});}else hurt();}}
+ for(const s of spikes){if(overlap(player,{x:s.x+5,y:s.y+5,w:s.w-10,h:s.h-5}))hurt();}
+ if(boss&&boss.alive){boss.x+=boss.vx;if(boss.x<boss.min||boss.x>boss.max)boss.vx*=-1;if(boss.hitCooldown>0)boss.hitCooldown-=dt;
+   if(overlap(player,boss)){if(player.vy>1&&oldY+player.h<=boss.y+24&&boss.hitCooldown<=0){boss.hp--;boss.hitCooldown=.65;player.vy=-12;player.y=boss.y-player.h;updateHUD();if(boss.hp<=0){boss.alive=false;bossWrap.style.display='none';showMessage('JENDRIK BESIEGT!','Gut gemacht! Der Weg zur Flagge ist jetzt frei.','WEITER',()=>{overlay.style.display='none';playing=true;lastTime=performance.now();requestAnimationFrame(loop)});}}else if(boss.hitCooldown<=0)hurt();}
+ }
+ if(player.invuln>0)player.invuln-=dt;
+ if(player.y>H+250){hurt();player.y=groundY-180;player.vy=0;}
+ if(player.x>flag.x-25&&!boss?.alive){nextLevel();}
+ camX=clamp(player.x-W*.34,0,worldW-W);camY=0;
+ for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.25;p.life-=dt;}particles=particles.filter(p=>p.life>0);
+}
+function rounded(x,y,w,h,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ const sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#66c8ff');sky.addColorStop(1,'#e7f9ff');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ // clouds and distant hills
+ ctx.fillStyle='#ffffff80';for(let i=0;i<7;i++){let x=((i*260-camX*.18)%(W+220)+W+220)%(W+220)-100;ctx.beginPath();ctx.ellipse(x,75+(i%3)*38,40,14,0,0,Math.PI*2);ctx.ellipse(x+28,70+(i%3)*38,30,18,0,0,Math.PI*2);ctx.fill();}
+ ctx.fillStyle='#80d59b';ctx.beginPath();ctx.moveTo(0,H-85);for(let x=0;x<=W+30;x+=30)ctx.lineTo(x,H-105-Math.sin((x+camX*.12)/90)*25);ctx.lineTo(W,H);ctx.lineTo(0,H);ctx.fill();
+ ctx.save();ctx.translate(-camX,-camY);
+ // ground/platforms
+ for(const p of platforms){rounded(p.x,p.y,p.w,p.h,6,p.h>30?'#8a5b32':'#7b4c2a');rounded(p.x,p.y,p.w,9,5,'#41b95c');}
+ // spikes
+ for(const s of spikes){ctx.fillStyle='#e8edf4';for(let x=s.x;x<s.x+s.w;x+=15){ctx.beginPath();ctx.moveTo(x,s.y+s.h);ctx.lineTo(x+7.5,s.y);ctx.lineTo(x+15,s.y+s.h);ctx.closePath();ctx.fill();}ctx.fillStyle='#b7c5d8';ctx.fillRect(s.x,s.y+s.h-3,s.w,4);}
+ // trampolines
+ for(const t of tramps){rounded(t.x,t.y+5,t.w,t.h,4,'#24344f');rounded(t.x,t.y,t.w,7,4,'#f4c430');ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(t.x+5,t.y+4);ctx.lineTo(t.x+10,t.y+10);ctx.lineTo(t.x+15,t.y+4);ctx.lineTo(t.x+20,t.y+10);ctx.lineTo(t.x+25,t.y+4);ctx.stroke();}
+ // enemies
+ for(const e of enemies){if(!e.alive)continue;rounded(e.x,e.y,e.w,e.h,8,'#d9414e');ctx.fillStyle='white';ctx.fillRect(e.x+6,e.y+7,6,7);ctx.fillRect(e.x+19,e.y+7,6,7);ctx.fillStyle='#182033';ctx.fillRect(e.x+8,e.y+9,3,4);ctx.fillRect(e.x+21,e.y+9,3,4);ctx.fillStyle='#6b1e2a';ctx.fillRect(e.x+8,e.y+23,15,3);}
+ // boss
+ if(boss&&boss.alive){rounded(boss.x,boss.y,boss.w,boss.h,14,'#572e87');rounded(boss.x+9,boss.y+15,boss.w-18,28,8,'#a94bd2');ctx.fillStyle='#fff';ctx.fillRect(boss.x+19,boss.y+25,11,11);ctx.fillRect(boss.x+52,boss.y+25,11,11);ctx.fillStyle='#17132b';ctx.fillRect(boss.x+23,boss.y+29,5,6);ctx.fillRect(boss.x+56,boss.y+29,5,6);ctx.fillStyle='#2b163e';ctx.fillRect(boss.x+25,boss.y+54,33,6);ctx.fillStyle='#f7c6ff';ctx.font='bold 14px system-ui';ctx.fillText('JENDRIK',boss.x+8,boss.y-8);}
+ // flag
+ ctx.fillStyle='#f5f5f5';ctx.fillRect(flag.x,flag.y,5,flag.h);ctx.fillStyle='#ffcf2f';ctx.beginPath();ctx.moveTo(flag.x+5,flag.y);ctx.lineTo(flag.x+47,flag.y+13);ctx.lineTo(flag.x+5,flag.y+28);ctx.closePath();ctx.fill();
+ // player blink when hit
+ if(player.invuln<=0||Math.floor(performance.now()/90)%2===0){rounded(player.x,player.y+10,player.w,player.h-10,8,'#f4c51f');rounded(player.x+4,player.y,player.w-8,18,7,'#f4c51f');ctx.fillStyle='#25344a';ctx.fillRect(player.x+7,player.y+7,5,6);ctx.fillRect(player.x+22,player.y+7,5,6);ctx.fillStyle='#fff';ctx.fillRect(player.x+8,player.y+7,2,2);ctx.fillRect(player.x+23,player.y+7,2,2);ctx.fillStyle='#27364d';ctx.fillRect(player.x+5,player.y+player.h-5,9,8);ctx.fillRect(player.x+21,player.y+player.h-5,9,8);}
+ for(const p of particles){ctx.globalAlpha=clamp(p.life*2,0,1);ctx.fillStyle='#ffd43b';ctx.fillRect(p.x,p.y,6,6);ctx.globalAlpha=1;}
+ ctx.restore();
+}
+function loop(now){if(!playing)return;const dt=(now-lastTime)/1000||0;lastTime=now;update(dt);draw();requestAnimationFrame(loop);}
+makeLevel();
+// Show start overlay first; don't run game until button pressed.
+})();
+</script>
+</body>
+</html>
